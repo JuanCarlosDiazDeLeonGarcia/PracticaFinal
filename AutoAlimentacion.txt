@@ -1,0 +1,112 @@
+#include <SPI.h>
+#include <MFRC522.h>
+
+// Pines para el módulo RFID
+#define RST_PIN 9  // Pin RST
+#define SS_PIN 10  // Pin SDA (SS)
+
+// Pin del buzzer
+#define BUZZER_PIN 8
+
+// Crear una instancia de la clase MFRC522
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// Base de datos de UID y nombres
+struct Card {
+  byte uid[4];
+  String name;
+  bool isPresent; // Indica si la tarjeta está activa o no
+};
+
+// Lista de tarjetas registradas
+Card registeredCards[] = {
+    {{0xC3, 0x77, 0xF3, 0x12}, "VACA LECHERA          2115", false},
+    {{0x13, 0x2F, 0xD5, 0xF7}, "VACA LECHERA          2114", false},
+    {{0x53, 0xD1, 0x7A, 0x1A}, "VACA DE CARNE         2113", false},
+    {{0x03, 0x96, 0x63, 0x13}, "VACA DE CARNE         2112", false}
+};
+
+// Número de tarjetas registradas
+const int registeredCardsCount = sizeof(registeredCards) / sizeof(registeredCards[0]);
+
+void setup() {
+  Serial.begin(9600); // Iniciar comunicación serial
+  SPI.begin();        // Iniciar SPI
+  rfid.PCD_Init();    // Iniciar el módulo RFID
+
+  pinMode(BUZZER_PIN, OUTPUT); // Configurar el pin del buzzer como salida
+  Serial.println("Escanea una tarjeta RFID...");
+}
+
+void loop() {
+  // Verificar si hay una nueva tarjeta presente
+  if (!rfid.PICC_IsNewCardPresent()) {
+    return;
+  }
+
+  // Verificar si se puede leer la tarjeta
+  if (!rfid.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  // Leer UID de la tarjeta
+  Serial.print("TARJETA DETECTADA: ");
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    Serial.print(rfid.uid.uidByte[i] < 0x10 ? " 0" : " ");
+  }
+  Serial.println();
+
+  // Verificar el estado de la tarjeta en la lista de registradas
+  int cardIndex = getCardIndex(rfid.uid.uidByte, rfid.uid.size);
+
+  if (cardIndex != -1) {
+    // La tarjeta está registrada
+    if (!registeredCards[cardIndex].isPresent) {
+      // Primera detección: mensaje de bienvenida
+      Serial.print("ENTRA: ");
+      Serial.println(registeredCards[cardIndex].name);
+      buzz(1); // Emitir 1 pitido
+      registeredCards[cardIndex].isPresent = true; // Marcar tarjeta como presente
+    } else {
+      // Segunda detección: mensaje de adiós
+      Serial.print("SALE: ");
+      Serial.println(registeredCards[cardIndex].name);
+      buzz(2); // Emitir 2 pitidos
+      registeredCards[cardIndex].isPresent = false; // Marcar tarjeta como ausente
+    }
+  } else {
+    // Tarjeta no registrada: emitir sonido de alerta
+    Serial.println("Tarjeta no registrada.");
+    buzz(3); // Emitir 3 pitidos
+  }
+
+  // Detener comunicación con la tarjeta
+  rfid.PICC_HaltA();
+}
+
+// Función para obtener el índice de la tarjeta en la lista registrada
+int getCardIndex(byte *uid, byte size) {
+  for (int i = 0; i < registeredCardsCount; i++) {
+    bool match = true;
+    for (byte j = 0; j < size; j++) {
+      if (registeredCards[i].uid[j] != uid[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return i; // Retornar índice de la tarjeta
+    }
+  }
+  return -1; // No se encontró la tarjeta
+}
+
+// Función para emitir sonido en el buzzer
+void buzz(int times) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(BUZZER_PIN, HIGH); // Encender el buzzer
+    delay(200);                    // Esperar 200ms
+    digitalWrite(BUZZER_PIN, LOW);  // Apagar el buzzer
+    delay(200);                    // Esperar 200ms
+  }
+}
